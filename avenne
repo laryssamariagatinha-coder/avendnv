@@ -1,0 +1,1606 @@
+-- =====================================================================
+--  AVEN ULTIMATE v11  •  MOBILE COMPACT EDITION
+--  Mesmas funções do v10, layout reduzido pra celular
+-- =====================================================================
+
+local Players              = game:GetService("Players")
+local RunService           = game:GetService("RunService")
+local UserInputService     = game:GetService("UserInputService")
+local TweenService         = game:GetService("TweenService")
+local Lighting             = game:GetService("Lighting")
+local StarterGui           = game:GetService("StarterGui")
+local VirtualUser          = game:GetService("VirtualUser")
+local VirtualInputManager  = game:GetService("VirtualInputManager")
+
+local LP     = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local CFG = {
+    VERSION     = "11.0",
+    GUI_NAME    = "AvenUltimate",
+    SAVE_FOLDER = "AvenUltimateConfig",
+    WALLPAPER   = "rbxassetid://86127861088397",
+    ACCENT      = Color3.fromRGB(140, 80, 255),
+    ACCENT_2    = Color3.fromRGB(90, 180, 255),
+    BG_DARK     = Color3.fromRGB(12, 12, 20),
+    BG_MID      = Color3.fromRGB(24, 16, 48),
+    BG_LIGHT    = Color3.fromRGB(38, 24, 72),
+    TEXT_DIM    = Color3.fromRGB(150, 150, 170),
+    TEXT_MAIN   = Color3.fromRGB(220, 220, 240),
+    DANGER      = Color3.fromRGB(200, 45, 45),
+    SUCCESS     = Color3.fromRGB(80, 200, 120),
+    WARN        = Color3.fromRGB(240, 180, 60),
+}
+
+-- UTILS
+local Utils = {}
+function Utils.getHRP(plr) return plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") end
+function Utils.getHumanoid(plr) return plr and plr.Character and plr.Character:FindFirstChildOfClass("Humanoid") end
+function Utils.getRigType(c)
+    if not c then return "?" end
+    if c:FindFirstChild("UpperTorso") or c:FindFirstChild("LowerTorso") then return "R15" end
+    if c:FindFirstChild("Torso") then return "R6" end
+    return "?"
+end
+function Utils.getAllParts(c)
+    local t = {}
+    if not c then return t end
+    for _, p in ipairs(c:GetDescendants()) do
+        if p:IsA("BasePart") then table.insert(t, p) end
+    end
+    return t
+end
+function Utils.clamp(v, mn, mx) return math.max(mn, math.min(mx, v)) end
+function Utils.round(v, p) p = p or 0; local m = 10^p; return math.floor(v*m+0.5)/m end
+function Utils.safeCall(fn, ...) local ok, err = pcall(fn, ...); if not ok then warn("[Aven]", err) end; return ok, err end
+
+-- DEVICE
+local isTouch  = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local isMobile = isTouch
+local isTablet = isMobile and Camera.ViewportSize.X > 700
+local isPC     = not isMobile
+local DEV_KIND = isTablet and "Tablet" or isMobile and "Mobile" or "PC"
+
+-- STATE
+local State = {
+    target=nil, followMode=1,
+    follow=false, fly=false, voo=false, noclip=true, fullbright=false,
+    invisible=false, antiAfk=true, antiFall=true, speedHack=false,
+    autoClick=false, highlight=false, esp=false, som=true,
+    flySpeed=50, followSmooth=0.18, walkSpeed=32, jumpPower=50,
+    tpDist=3, cps=10, tab="principal", emoteCat="todas",
+}
+
+local SaveFolder = LP:FindFirstChild(CFG.SAVE_FOLDER)
+if not SaveFolder then SaveFolder = Instance.new("Folder"); SaveFolder.Name = CFG.SAVE_FOLDER; SaveFolder.Parent = LP end
+
+local function saveState()
+    Utils.safeCall(function()
+        for k, v in pairs(State) do
+            if type(v) == "number" or type(v) == "boolean" or type(v) == "string" then
+                local e = SaveFolder:FindFirstChild(k); if e then e:Destroy() end
+                local o = type(v)=="number" and Instance.new("NumberValue") or type(v)=="boolean" and Instance.new("BoolValue") or Instance.new("StringValue")
+                o.Name = k; o.Value = v; o.Parent = SaveFolder
+            end
+        end
+    end)
+end
+local function loadState()
+    Utils.safeCall(function()
+        for _, v in ipairs(SaveFolder:GetChildren()) do
+            if State[v.Name] ~= nil and type(State[v.Name]) == type(v.Value) then State[v.Name] = v.Value end
+        end
+    end)
+end
+loadState()
+
+-- NOTIFY
+local toastInstance = nil
+local function notifyNative(title, text, duration)
+    Utils.safeCall(function()
+        StarterGui:SetCore("SendNotification", {Title=title or "Aven", Text=text or "", Duration=duration or 2})
+    end)
+end
+local function toast(msg, cor)
+    if toastInstance then Utils.safeCall(function() toastInstance.setText(msg, cor) end) end
+end
+
+-- SOM
+local ClickSound = Instance.new("Sound")
+ClickSound.SoundId = "rbxassetid://6895079853"
+ClickSound.Volume = 0.3
+ClickSound.Parent = LP:WaitForChild("PlayerGui")
+local function playClick() if State.som then Utils.safeCall(function() ClickSound:Play() end) end end
+
+-- LIMPAR
+for _, name in ipairs({"AvenUltimate","AvenUniversal","AvenEmoteGUI","AvenJump","AvenLock","AvenKeyLock"}) do
+    local o = LP.PlayerGui:FindFirstChild(name)
+    if o then o:Destroy() end
+end
+
+-- =====================================================================
+-- EMOTES
+-- =====================================================================
+local EMOTES = {
+    {nome="Wave",emoji="👋",r6=true,cat="padrao"},
+    {nome="Point",emoji="👉",r6=true,cat="padrao"},
+    {nome="Dance",emoji="🕺",r6=true,cat="padrao"},
+    {nome="Laugh",emoji="😂",r6=true,cat="padrao"},
+    {nome="Cheer",emoji="🎉",r6=true,cat="padrao"},
+    {nome="Shrug",emoji="🤷",r6=true,cat="padrao"},
+    {nome="Salute",emoji="🫡",r6=true,cat="padrao"},
+    {nome="Facepalm",emoji="🤦",r6=true,cat="padrao"},
+    {nome="Dizzy",emoji="😵",r6=true,cat="padrao"},
+    {nome="Kick",emoji="🦵",r6=false,cat="padrao"},
+    {nome="FallOver",emoji="💀",r6=false,cat="padrao"},
+    {nome="Dance2",emoji="💃",r6=true,cat="dance"},
+    {nome="Dance3",emoji="🕺",r6=true,cat="dance"},
+    {nome="Floss",emoji="🎵",r6=false,cat="dance"},
+    {nome="OrangeJustice",emoji="🍊",r6=false,cat="dance"},
+    {nome="Robot",emoji="🤖",r6=false,cat="dance"},
+    {nome="Default",emoji="🎶",r6=true,cat="dance"},
+    {nome="Applause",emoji="👏",r6=false,cat="expressao"},
+    {nome="Giggle",emoji="😄",r6=false,cat="expressao"},
+    {nome="Cry",emoji="😭",r6=false,cat="expressao"},
+    {nome="Angry",emoji="😠",r6=false,cat="expressao"},
+    {nome="Agree",emoji="👍",r6=false,cat="expressao"},
+    {nome="Disagree",emoji="👎",r6=false,cat="expressao"},
+    {nome="Hello",emoji="🙋",r6=false,cat="expressao"},
+    {nome="Goodbye",emoji="👋",r6=false,cat="expressao"},
+    {nome="Nervous",emoji="😅",r6=false,cat="expressao"},
+    {nome="Sit",emoji="🪑",r6=true,cat="movimento"},
+    {nome="Lay",emoji="🛌",r6=true,cat="movimento"},
+    {nome="Float",emoji="🎈",r6=false,cat="movimento"},
+    {nome="Levitate",emoji="🧘",r6=false,cat="movimento"},
+    {nome="Backflip",emoji="🔄",r6=false,cat="movimento"},
+    {nome="Cartwheel",emoji="🤸",r6=false,cat="movimento"},
+}
+
+local Favorites = {}
+local function loadFavs()
+    local f = LP:FindFirstChild("AvenEmoteFavs")
+    if not f then f = Instance.new("Folder"); f.Name = "AvenEmoteFavs"; f.Parent = LP end
+    for _, v in ipairs(f:GetChildren()) do Favorites[v.Name] = true end
+end
+local function saveFav(nome, on)
+    local f = LP:FindFirstChild("AvenEmoteFavs")
+    if not f then f = Instance.new("Folder"); f.Name = "AvenEmoteFavs"; f.Parent = LP end
+    local e = f:FindFirstChild(nome)
+    if on and not e then local v = Instance.new("BoolValue"); v.Name = nome; v.Parent = f
+    elseif not on and e then e:Destroy() end
+end
+loadFavs()
+
+-- =====================================================================
+-- UI — TAMANHOS REDUZIDOS
+-- =====================================================================
+-- mobile: 260×380 | tablet: 300×460 | pc: 300×480
+local GUI_W = isMobile and (isTablet and 300 or 260) or 300
+local GUI_H = isMobile and (isTablet and 460 or 380) or 480
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = CFG.GUI_NAME
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 999
+ScreenGui.Parent = LP.PlayerGui
+
+local Window = Instance.new("Frame")
+Window.Name = "Window"
+Window.Size = UDim2.new(0, GUI_W, 0, GUI_H)
+Window.Position = UDim2.new(0, 10, 0.5, -GUI_H/2)
+Window.BackgroundColor3 = CFG.BG_DARK
+Window.BorderSizePixel = 0
+Window.Active = true
+Window.ClipsDescendants = true
+Window.Parent = ScreenGui
+Instance.new("UICorner", Window).CornerRadius = UDim.new(0, 12)
+
+local winStroke = Instance.new("UIStroke", Window)
+winStroke.Color = CFG.ACCENT
+winStroke.Thickness = 1.5
+
+-- WALLPAPER
+local Wallpaper = Instance.new("ImageLabel")
+Wallpaper.Size = UDim2.new(1, 0, 1, 0)
+Wallpaper.BackgroundTransparency = 1
+Wallpaper.Image = CFG.WALLPAPER
+Wallpaper.ImageTransparency = 0.4
+Wallpaper.ScaleType = Enum.ScaleType.Crop
+Wallpaper.ZIndex = 0
+Wallpaper.Parent = Window
+Instance.new("UICorner", Wallpaper).CornerRadius = UDim.new(0, 12)
+
+task.delay(3, function()
+    if Wallpaper and Wallpaper.Parent and Wallpaper.IsLoaded == false then
+        Utils.safeCall(function()
+            local v = Instance.new("VideoFrame")
+            v.Size = UDim2.new(1,0,1,0); v.BackgroundTransparency = 1
+            v.Video = CFG.WALLPAPER; v.Looped = true; v.Playing = true; v.Volume = 0
+            v.ZIndex = 0; v.Parent = Window
+            Instance.new("UICorner", v).CornerRadius = UDim.new(0, 12)
+            Wallpaper:Destroy(); Wallpaper = v
+        end)
+    end
+end)
+
+local WallOverlay = Instance.new("Frame")
+WallOverlay.Size = UDim2.new(1, 0, 1, 0)
+WallOverlay.BackgroundColor3 = Color3.fromRGB(0,0,0)
+WallOverlay.BackgroundTransparency = 0.7
+WallOverlay.BorderSizePixel = 0
+WallOverlay.ZIndex = 1
+WallOverlay.Parent = Window
+Instance.new("UICorner", WallOverlay).CornerRadius = UDim.new(0, 12)
+
+-- TOPBAR (compacta 36px)
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 36)
+TopBar.BackgroundColor3 = CFG.BG_MID
+TopBar.BackgroundTransparency = 0.15
+TopBar.BorderSizePixel = 0
+TopBar.ZIndex = 2
+TopBar.Parent = Window
+Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 12)
+
+local topFix = Instance.new("Frame")
+topFix.Size = UDim2.new(1, 0, 0.5, 0)
+topFix.Position = UDim2.new(0, 0, 0.5, 0)
+topFix.BackgroundColor3 = CFG.BG_MID
+topFix.BackgroundTransparency = 0.15
+topFix.BorderSizePixel = 0
+topFix.ZIndex = 2
+topFix.Parent = TopBar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -110, 1, 0)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "✦ Aven v" .. CFG.VERSION
+Title.TextColor3 = Color3.fromRGB(200, 150, 255)
+Title.TextScaled = true
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.ZIndex = 3
+Title.Parent = TopBar
+
+local function makeTopBtn(text, color, xOffset)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, 24, 0, 24)
+    b.Position = UDim2.new(1, xOffset, 0.5, -12)
+    b.BackgroundColor3 = color
+    b.Text = text
+    b.TextColor3 = Color3.new(1,1,1)
+    b.TextScaled = true
+    b.Font = Enum.Font.GothamBold
+    b.ZIndex = 4
+    b.Parent = TopBar
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    return b
+end
+
+local BtnPanic = makeTopBtn("⚠", Color3.fromRGB(240,150,0), -84)
+local BtnMin   = makeTopBtn("—", Color3.fromRGB(80,55,180), -56)
+local BtnClose = makeTopBtn("✕", CFG.DANGER, -28)
+
+-- Arrastar
+local dragging, dragInput, dragStart, startPos
+TopBar.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        dragging = true; dragStart = i.Position; startPos = Window.Position
+        i.Changed:Connect(function() if i.UserInputState == Enum.UserInputState.End then dragging = false end end)
+    end
+end)
+TopBar.InputChanged:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then dragInput = i end
+end)
+UserInputService.InputChanged:Connect(function(i)
+    if dragging and i == dragInput then
+        local d = i.Position - dragStart
+        Window.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X, startPos.Y.Scale, startPos.Y.Offset+d.Y)
+    end
+end)
+
+local minimized = false
+BtnMin.MouseButton1Click:Connect(function()
+    playClick()
+    minimized = not minimized
+    Window.Size = minimized and UDim2.new(0, GUI_W, 0, 36) or UDim2.new(0, GUI_W, 0, GUI_H)
+    BtnMin.Text = minimized and "+" or "—"
+end)
+
+-- TOAST (menor)
+local toastW = GUI_W - 30
+local Toast = Instance.new("Frame")
+Toast.Size = UDim2.new(0, toastW, 0, 36)
+Toast.Position = UDim2.new(0.5, -toastW/2, 0, -60)
+Toast.BackgroundColor3 = CFG.BG_MID
+Toast.BorderSizePixel = 0
+Toast.ZIndex = 100
+Toast.Parent = ScreenGui
+Instance.new("UICorner", Toast).CornerRadius = UDim.new(0, 10)
+local toastStroke = Instance.new("UIStroke", Toast)
+toastStroke.Color = CFG.ACCENT
+toastStroke.Thickness = 1.5
+local toastLabel = Instance.new("TextLabel")
+toastLabel.Size = UDim2.new(1, -16, 1, 0)
+toastLabel.Position = UDim2.new(0, 8, 0, 0)
+toastLabel.BackgroundTransparency = 1
+toastLabel.TextColor3 = CFG.TEXT_MAIN
+toastLabel.TextScaled = true
+toastLabel.Font = Enum.Font.GothamBold
+toastLabel.ZIndex = 101
+toastLabel.Parent = Toast
+
+local toastBusy = false
+toastInstance = { setText = function(msg, cor)
+    if toastBusy then return end
+    toastBusy = true
+    toastLabel.Text = msg
+    toastStroke.Color = cor or CFG.ACCENT
+    TweenService:Create(Toast, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {Position = UDim2.new(0.5, -toastW/2, 0, 12)}):Play()
+    task.delay(1.8, function()
+        TweenService:Create(Toast, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {Position = UDim2.new(0.5, -toastW/2, 0, -60)}):Play()
+        task.wait(0.3); toastBusy = false
+    end)
+end }
+
+-- HELPERS
+local BTN_H = 32
+
+local function makeLabel(parent, text, color, left)
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(1, -12, 0, 14)
+    l.Position = UDim2.new(0, 6, 0, 0)
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.TextColor3 = color or CFG.TEXT_DIM
+    l.TextScaled = true
+    l.Font = Enum.Font.GothamBold
+    l.TextXAlignment = left and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
+    l.Parent = parent
+    return l
+end
+
+local function bigButton(parent, text, color, onClick)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, 0, 0, BTN_H)
+    b.BackgroundColor3 = color
+    b.Text = text
+    b.TextColor3 = CFG.TEXT_MAIN
+    b.TextScaled = true
+    b.Font = Enum.Font.GothamBold
+    b.ZIndex = 2
+    b.Parent = parent
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    local s = Instance.new("UIStroke", b); s.Color = Color3.new(1,1,1); s.Transparency = 0.85; s.Thickness = 1
+    b.MouseButton1Click:Connect(function() playClick(); Utils.safeCall(onClick, b) end)
+    return b
+end
+
+-- ABAS (compactas 32px, ícones menores)
+local TabBar = Instance.new("Frame")
+TabBar.Size = UDim2.new(1, -12, 0, 32)
+TabBar.Position = UDim2.new(0, 6, 0, 42)
+TabBar.BackgroundColor3 = CFG.BG_MID
+TabBar.BackgroundTransparency = 0.2
+TabBar.BorderSizePixel = 0
+TabBar.ZIndex = 2
+TabBar.Parent = Window
+Instance.new("UICorner", TabBar).CornerRadius = UDim.new(0, 8)
+
+local TABS = {
+    {id="principal", nome="🏠", cor=CFG.ACCENT},
+    {id="extras",    nome="⚡", cor=Color3.fromRGB(240,150,40)},
+    {id="emotes",    nome="🎭", cor=Color3.fromRGB(255,100,180)},
+    {id="ajustes",   nome="⚙", cor=CFG.ACCENT_2},
+    {id="info",      nome="ℹ", cor=Color3.fromRGB(100,100,130)},
+    {id="mais",      nome="➕", cor=Color3.fromRGB(80,200,120)},
+}
+
+local tabBtns = {}
+local tabW = (GUI_W - 12) / #TABS
+for i, t in ipairs(TABS) do
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, tabW, 1, 0)
+    b.Position = UDim2.new(0, (i-1)*tabW, 0, 0)
+    b.BackgroundColor3 = i==1 and t.cor or CFG.BG_MID
+    b.BackgroundTransparency = i==1 and 0 or 0.5
+    b.Text = t.nome
+    b.TextColor3 = Color3.new(1,1,1)
+    b.TextScaled = true
+    b.Font = Enum.Font.GothamBold
+    b.ZIndex = 3
+    b.Parent = TabBar
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    tabBtns[t.id] = b
+end
+
+local function switchTab(id)
+    State.tab = id
+    for _, t in ipairs(TABS) do
+        tabBtns[t.id].BackgroundColor3 = t.id==id and t.cor or CFG.BG_MID
+        tabBtns[t.id].BackgroundTransparency = t.id==id and 0 or 0.5
+    end
+    for _, c in ipairs(Window:GetChildren()) do
+        if c:IsA("ScrollingFrame") then c.Visible = (c.Name == "Tab_"..id) end
+    end
+    if id == "emotes" and _G.__renderEmotes then
+        task.defer(function() _G.__renderEmotes() end)
+    end
+end
+for _, t in ipairs(TABS) do
+    tabBtns[t.id].MouseButton1Click:Connect(function() playClick(); switchTab(t.id) end)
+end
+
+-- SCROLLS
+local function makeScroll(id)
+    local s = Instance.new("ScrollingFrame")
+    s.Name = "Tab_"..id
+    s.Size = UDim2.new(1, -6, 1, -80)
+    s.Position = UDim2.new(0, 3, 0, 78)
+    s.BackgroundTransparency = 1
+    s.BorderSizePixel = 0
+    s.ScrollBarThickness = 5
+    s.ScrollBarImageColor3 = CFG.ACCENT
+    s.CanvasSize = UDim2.new(0,0,0,0)
+    s.ScrollingEnabled = true
+    s.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+    s.Visible = (id == State.tab)
+    s.ZIndex = 3
+    s.Parent = Window
+    local L = Instance.new("UIListLayout", s)
+    L.Padding = UDim.new(0, 4); L.SortOrder = Enum.SortOrder.LayoutOrder
+    local P = Instance.new("UIPadding", s)
+    P.PaddingTop = UDim.new(0,4); P.PaddingBottom = UDim.new(0,4)
+    P.PaddingLeft = UDim.new(0,4); P.PaddingRight = UDim.new(0,4)
+    task.defer(function()
+        L:ApplyLayout()
+        s.CanvasSize = UDim2.new(0,0,0, L.AbsoluteContentSize.Y + 12)
+        L:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            s.CanvasSize = UDim2.new(0,0,0, L.AbsoluteContentSize.Y + 12)
+        end)
+    end)
+    return s
+end
+
+local TabPrincipal = makeScroll("principal")
+local TabExtras    = makeScroll("extras")
+local TabEmotes    = makeScroll("emotes")
+local TabAjustes   = makeScroll("ajustes")
+local TabInfo      = makeScroll("info")
+local TabMais      = makeScroll("mais")
+
+-- SLIDER COMPACTO
+local function makeSlider(parent, text, minV, maxV, defV, callback)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, 0, 0, 36)
+    container.BackgroundTransparency = 1
+    container.Parent = parent
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1,0,0,14); label.BackgroundTransparency = 1
+    label.Text = text..": "..tostring(defV)
+    label.TextColor3 = Color3.fromRGB(190,150,255)
+    label.TextScaled = true; label.Font = Enum.Font.GothamBold
+    label.TextXAlignment = Enum.TextXAlignment.Left; label.Parent = container
+    local barH = 14
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(1,0,0,barH); bar.Position = UDim2.new(0,0,0,18)
+    bar.BackgroundColor3 = CFG.BG_LIGHT; bar.BorderSizePixel = 0; bar.Parent = container
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(1,0)
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((defV-minV)/(maxV-minV), 0, 1, 0)
+    fill.BackgroundColor3 = CFG.ACCENT; fill.BorderSizePixel = 0; fill.Parent = bar
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1,0)
+    local knobSize = 20
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0,knobSize,0,knobSize)
+    knob.Position = UDim2.new((defV-minV)/(maxV-minV), -knobSize/2, 0.5, -knobSize/2)
+    knob.BackgroundColor3 = Color3.fromRGB(215,170,255); knob.BorderSizePixel = 0; knob.Parent = bar
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1,0)
+    local dragging = false
+    local function update(input)
+        local rel = Utils.clamp((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+        local val = math.floor(minV + (maxV-minV)*rel + 0.5)
+        fill.Size = UDim2.new(rel, 0, 1, 0)
+        knob.Position = UDim2.new(rel, -knobSize/2, 0.5, -knobSize/2)
+        label.Text = text..": "..tostring(val)
+        callback(val)
+    end
+    bar.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = true; update(i) end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then update(i) end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+end
+
+-- =====================================================================
+-- FEATURES
+-- =====================================================================
+local Features = {}
+local conns = {}
+local active = {}
+local function trackConn(c) table.insert(conns, c); return c end
+
+Features.follow = {
+    start = function()
+        if not State.target then toast("⚠ Selecione alvo", CFG.WARN); return false end
+        if active.follow then return end
+        active.follow = true
+        local modes = {Vector3.new(0,0,3.5),Vector3.new(0,0,-3.5),Vector3.new(3.5,0,0),Vector3.new(0,5,0),Vector3.new(0,-3,0)}
+        trackConn(RunService.Heartbeat:Connect(function()
+            if not active.follow then return end
+            local hrp = Utils.getHRP(LP); local tHRP = Utils.getHRP(State.target)
+            if not hrp or not tHRP then return end
+            local dest = tHRP.CFrame:PointToWorldSpace(modes[State.followMode] or modes[1])
+            local angle = math.atan2(tHRP.Position.X - hrp.Position.X, tHRP.Position.Z - hrp.Position.Z)
+            hrp.CFrame = hrp.CFrame:Lerp(CFrame.new(dest) * CFrame.Angles(0, angle, 0), State.followSmooth)
+        end))
+        return true
+    end,
+    stop = function() active.follow = false end,
+}
+
+Features.fly = {
+    start = function()
+        if active.fly then return end
+        active.fly = true
+        local hrp = Utils.getHRP(LP); if not hrp then active.fly = false; return end
+        local hum = Utils.getHumanoid(LP); if hum then hum.PlatformStand = true end
+        local bv = Instance.new("BodyVelocity"); bv.Velocity = Vector3.zero; bv.MaxForce = Vector3.new(1e5,1e5,1e5); bv.Parent = hrp
+        local bg = Instance.new("BodyGyro"); bg.MaxTorque = Vector3.new(1e5,1e5,1e5); bg.D = 50; bg.Parent = hrp
+        active.flyBV, active.flyBG = bv, bg
+        trackConn(RunService.RenderStepped:Connect(function()
+            if not active.fly then return end
+            local h = Utils.getHRP(LP); if not h or not bv.Parent then return end
+            local cf = Camera.CFrame; local dir = Vector3.zero
+            if isPC then
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cf.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cf.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cf.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cf.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0,1,0) end
+            else
+                local h2 = Utils.getHumanoid(LP)
+                if h2 and h2.MoveDirection.Magnitude > 0 then local mv = h2.MoveDirection; dir = cf.LookVector*mv.Z + cf.RightVector*mv.X end
+                if h2 and h2.Jump then dir = dir + Vector3.new(0,1,0) end
+            end
+            bv.Velocity = dir.Magnitude > 0 and (dir.Unit * State.flySpeed) or Vector3.zero
+            bg.CFrame = cf
+        end))
+        return true
+    end,
+    stop = function()
+        active.fly = false
+        if active.flyBV then active.flyBV:Destroy() end
+        if active.flyBG then active.flyBG:Destroy() end
+        active.flyBV, active.flyBG = nil, nil
+        local hum = Utils.getHumanoid(LP); if hum then hum.PlatformStand = false end
+    end,
+}
+
+Features.teleport = {
+    toTarget = function()
+        if not State.target then toast("⚠ Selecione alvo", CFG.WARN); return end
+        local tHRP = Utils.getHRP(State.target); local hrp = Utils.getHRP(LP)
+        if tHRP and hrp then hrp.CFrame = tHRP.CFrame * CFrame.new(0,0,State.tpDist); toast("✓ TP", CFG.SUCCESS) end
+    end,
+}
+
+Features.voo = {
+    start = function()
+        if active.voo then return end
+        active.voo = true
+        trackConn(RunService.Heartbeat:Connect(function()
+            if not active.voo then return end
+            local function up(plr)
+                if plr == LP then return end
+                local h = Utils.getHRP(plr); local hum = Utils.getHumanoid(plr)
+                if h and hum and hum.Health > 0 then
+                    hum.PlatformStand = true
+                    h.AssemblyLinearVelocity = Vector3.new(h.AssemblyLinearVelocity.X, 52, h.AssemblyLinearVelocity.Z)
+                end
+            end
+            if State.target then up(State.target) else for _, p in ipairs(Players:GetPlayers()) do up(p) end end
+        end))
+        return true
+    end,
+    stop = function()
+        active.voo = false
+        for _, p in ipairs(Players:GetPlayers()) do
+            local hum = Utils.getHumanoid(p); if hum then hum.PlatformStand = false end
+        end
+    end,
+}
+
+Features.noclip = {
+    apply = function()
+        if not State.noclip then return end
+        local c = LP.Character; if not c then return end
+        for _, p in ipairs(Utils.getAllParts(c)) do if p.CanCollide then p.CanCollide = false end end
+    end,
+    restore = function()
+        local c = LP.Character; if not c then return end
+        for _, p in ipairs(Utils.getAllParts(c)) do p.CanCollide = true end
+    end,
+}
+
+Features.fullbright = {
+    on = function()
+        active.fbOld = {Brightness=Lighting.Brightness, ClockTime=Lighting.ClockTime, FogEnd=Lighting.FogEnd, GlobalShadows=Lighting.GlobalShadows, OutdoorAmbient=Lighting.OutdoorAmbient, Ambient=Lighting.Ambient}
+        Lighting.Brightness = 3; Lighting.ClockTime = 14; Lighting.FogEnd = 1e6
+        Lighting.GlobalShadows = false; Lighting.OutdoorAmbient = Color3.fromRGB(180,180,180)
+        Lighting.Ambient = Color3.fromRGB(150,150,150)
+    end,
+    off = function()
+        if active.fbOld then
+            for k, v in pairs(active.fbOld) do Utils.safeCall(function() Lighting[k] = v end) end
+            active.fbOld = nil
+        end
+    end,
+}
+
+Features.invisible = {
+    apply = function()
+        if not State.invisible then return end
+        local c = LP.Character; if not c then return end
+        for _, p in ipairs(Utils.getAllParts(c)) do if p.Name ~= "HumanoidRootPart" then p.LocalTransparencyModifier = 1 end end
+    end,
+    restore = function()
+        local c = LP.Character; if not c then return end
+        for _, p in ipairs(Utils.getAllParts(c)) do p.LocalTransparencyModifier = 0 end
+    end,
+}
+
+Features.speed = {
+    apply = function()
+        local hum = Utils.getHumanoid(LP); if not hum then return end
+        if State.speedHack then hum.WalkSpeed = State.walkSpeed; hum.UseJumpPower = true; hum.JumpPower = State.jumpPower
+        else hum.WalkSpeed = 16; hum.JumpPower = 50 end
+    end,
+}
+
+Features.highlight = {
+    apply = function(plr)
+        Features.highlight.remove()
+        if not plr or not plr.Character then return end
+        local h = Instance.new("Highlight")
+        h.FillColor = CFG.ACCENT; h.OutlineColor = Color3.fromRGB(220,180,255)
+        h.FillTransparency = 0.5; h.OutlineTransparency = 0
+        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop; h.Parent = plr.Character
+        active.highlightInstance = h
+    end,
+    remove = function() if active.highlightInstance then active.highlightInstance:Destroy(); active.highlightInstance = nil end end,
+}
+
+Features.esp = {
+    start = function()
+        if active.esp then return end
+        active.esp = true; active.espInstances = {}
+        local function add(plr)
+            if plr == LP or active.espInstances[plr] then return end
+            local b = Instance.new("Highlight")
+            b.FillColor = Color3.fromRGB(120,220,120); b.OutlineColor = Color3.new(1,1,1)
+            b.FillTransparency = 0.7; b.OutlineTransparency = 0.3
+            b.Parent = plr.Character or plr
+            active.espInstances[plr] = b
+        end
+        for _, p in ipairs(Players:GetPlayers()) do if p.Character then add(p) end end
+        trackConn(Players.PlayerAdded:Connect(function(p)
+            p.CharacterAdded:Connect(function() task.wait(0.5); add(p) end)
+        end))
+    end,
+    stop = function()
+        active.esp = false
+        if active.espInstances then for _, i in pairs(active.espInstances) do if i and i.Parent then i:Destroy() end end end
+        active.espInstances = nil
+    end,
+}
+
+Features.autoClick = {
+    start = function()
+        if active.autoClick then return end
+        active.autoClick = true
+        task.spawn(function()
+            while active.autoClick do
+                Utils.safeCall(function()
+                    VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
+                    VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
+                end)
+                task.wait(1/State.cps)
+            end
+        end)
+    end,
+    stop = function() active.autoClick = false end,
+}
+
+LP.Idled:Connect(function()
+    if not State.antiAfk then return end
+    Utils.safeCall(function() VirtualUser:CaptureController(); VirtualUser:ClickButton2(Vector2.new()) end)
+end)
+
+trackConn(RunService.Heartbeat:Connect(function()
+    if not State.antiFall then return end
+    local hrp = Utils.getHRP(LP); if not hrp then return end
+    if hrp.Position.Y < -150 then hrp.CFrame = CFrame.new(0,50,0); hrp.AssemblyLinearVelocity = Vector3.zero end
+end))
+
+trackConn(RunService.Stepped:Connect(function() Features.noclip.apply(); Features.invisible.apply() end))
+task.spawn(function() while task.wait(0.5) do Features.speed.apply() end end)
+
+-- =====================================================================
+-- TAB PRINCIPAL
+-- =====================================================================
+makeLabel(TabPrincipal, "🎯 ALVO", CFG.ACCENT, true)
+
+local TargetLabel = Instance.new("TextButton")
+TargetLabel.Size = UDim2.new(1,0,0,BTN_H)
+TargetLabel.BackgroundColor3 = CFG.BG_LIGHT
+TargetLabel.BackgroundTransparency = 0.15
+TargetLabel.Text = "★ Todos  ▾"
+TargetLabel.TextColor3 = CFG.TEXT_MAIN
+TargetLabel.TextScaled = true
+TargetLabel.Font = Enum.Font.GothamBold
+TargetLabel.ZIndex = 2
+TargetLabel.Parent = TabPrincipal
+Instance.new("UICorner", TargetLabel).CornerRadius = UDim.new(0,8)
+Instance.new("UIStroke", TargetLabel).Color = CFG.ACCENT
+
+local DropFrame = Instance.new("Frame")
+DropFrame.Size = UDim2.new(1,0,0,0)
+DropFrame.BackgroundColor3 = CFG.BG_MID
+DropFrame.BorderSizePixel = 0
+DropFrame.ClipsDescendants = true
+DropFrame.Visible = false
+DropFrame.ZIndex = 20
+DropFrame.Parent = TabPrincipal
+Instance.new("UICorner", DropFrame).CornerRadius = UDim.new(0,8)
+
+local DropScroll = Instance.new("ScrollingFrame")
+DropScroll.Size = UDim2.new(1,0,1,0)
+DropScroll.BackgroundTransparency = 1
+DropScroll.ScrollBarThickness = 5
+DropScroll.ScrollBarImageColor3 = CFG.ACCENT
+DropScroll.BorderSizePixel = 0
+DropScroll.ZIndex = 21
+DropScroll.Parent = DropFrame
+Instance.new("UIListLayout", DropScroll).Padding = UDim.new(0,2)
+
+local dropOpen = false
+local function fecharDrop() dropOpen = false; DropFrame.Visible = false; DropFrame.Size = UDim2.new(1,0,0,0) end
+
+local function atualizarDrop()
+    for _, v in ipairs(DropScroll:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
+    local function addItem(txt, cor, cb)
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(1,0,0,30)
+        b.BackgroundColor3 = cor; b.Text = txt; b.TextColor3 = CFG.TEXT_MAIN
+        b.TextScaled = true; b.Font = Enum.Font.GothamBold; b.ZIndex = 22; b.Parent = DropScroll
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0,6)
+        b.MouseButton1Click:Connect(function() playClick(); cb() end)
+    end
+    addItem("★ Todos", CFG.ACCENT, function()
+        State.target = nil; TargetLabel.Text = "★ Todos  ▾"
+        Features.highlight.remove(); fecharDrop(); toast("Todos", CFG.ACCENT_2)
+    end)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then
+            local rig = Utils.getRigType(p.Character)
+            local dist = "?"
+            local myHRP = Utils.getHRP(LP); local pHRP = Utils.getHRP(p)
+            if myHRP and pHRP then dist = tostring(Utils.round((myHRP.Position - pHRP.Position).Magnitude, 0)) end
+            addItem("👤 "..p.Name.." ["..rig.."] "..dist.."m", CFG.BG_LIGHT, function()
+                State.target = p; TargetLabel.Text = "👤 "..p.Name.."  ▾"
+                if State.highlight then Features.highlight.apply(p) end
+                fecharDrop(); toast(p.Name, CFG.ACCENT)
+            end)
+        end
+    end
+    local count = #Players:GetPlayers()
+    local h = math.min(count * 32, 140)
+    DropFrame.Size = UDim2.new(1,0,0,h)
+    DropScroll.CanvasSize = UDim2.new(0,0,0, count * 32)
+    DropFrame.Visible = true
+end
+
+TargetLabel.MouseButton1Click:Connect(function()
+    playClick()
+    dropOpen = not dropOpen
+    if dropOpen then atualizarDrop() else fecharDrop() end
+end)
+
+makeLabel(TabPrincipal, "🎮 MODO", CFG.ACCENT, true)
+
+local modesFrame = Instance.new("Frame")
+modesFrame.Size = UDim2.new(1,0,0,68)
+modesFrame.BackgroundTransparency = 1
+modesFrame.Parent = TabPrincipal
+
+local MODOS = {"🔵","🟢","🟡","🟣","🔴"}
+local modeBtns = {}
+local modeW = (GUI_W - 24) / 5
+
+for i, m in ipairs(MODOS) do
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, modeW - 3, 0, 30)
+    b.Position = UDim2.new(0, (i-1)*(modeW+1), 0, 0)
+    b.BackgroundColor3 = i == State.followMode and CFG.ACCENT or CFG.BG_LIGHT
+    b.Text = m; b.TextColor3 = CFG.TEXT_MAIN; b.TextScaled = true
+    b.Font = Enum.Font.GothamBold; b.ZIndex = 2; b.Parent = modesFrame
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0,6)
+    modeBtns[i] = b
+    b.MouseButton1Click:Connect(function()
+        playClick(); State.followMode = i
+        for j, btn in ipairs(modeBtns) do btn.BackgroundColor3 = j==i and CFG.ACCENT or CFG.BG_LIGHT end
+    end)
+end
+
+-- Nomes dos modos abaixo
+local modeNames = {"Atrás","Frente","Lado","Cima","Baixo"}
+for i, n in ipairs(modeNames) do
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(0, modeW - 3, 0, 12)
+    l.Position = UDim2.new(0, (i-1)*(modeW+1), 0, 32)
+    l.BackgroundTransparency = 1
+    l.Text = n
+    l.TextColor3 = CFG.TEXT_DIM
+    l.TextScaled = true
+    l.Font = Enum.Font.Gotham
+    l.ZIndex = 2
+    l.Parent = modesFrame
+end
+
+makeLabel(TabPrincipal, "⚡ AÇÕES", CFG.ACCENT, true)
+
+local BtnFollow = bigButton(TabPrincipal, "🔵 Follow", Color3.fromRGB(30,100,180), function(b)
+    if State.follow then
+        Features.follow.stop(); State.follow = false
+        b.Text = "🔵 Follow"; b.BackgroundColor3 = Color3.fromRGB(30,100,180)
+        toast("Follow OFF", CFG.TEXT_DIM)
+    else
+        if Features.follow.start() then
+            State.follow = true
+            b.Text = "⏹ Parar Follow"; b.BackgroundColor3 = Color3.fromRGB(180,60,20)
+            toast("Follow ON", Color3.fromRGB(80,180,255))
+        end
+    end
+end)
+
+local BtnTP = bigButton(TabPrincipal, "⚡ Teleport", Color3.fromRGB(160,80,220), function() Features.teleport.toTarget() end)
+
+local BtnFly = bigButton(TabPrincipal, "🕊 Voar", Color3.fromRGB(35,130,90), function(b)
+    if active.fly then
+        Features.fly.stop(); State.fly = false
+        b.Text = "🕊 Voar"; b.BackgroundColor3 = Color3.fromRGB(35,130,90)
+        toast("Voo OFF", CFG.TEXT_DIM)
+    else
+        if Features.fly.start() then
+            State.fly = true
+            b.Text = "⏹ Parar Voo"; b.BackgroundColor3 = Color3.fromRGB(180,60,20)
+            toast("Voando", Color3.fromRGB(80,220,160))
+        end
+    end
+end)
+
+local BtnVoo = bigButton(TabPrincipal, "▶ Voo Alvo", Color3.fromRGB(100,50,200), function(b)
+    if active.voo then
+        Features.voo.stop(); State.voo = false
+        b.Text = "▶ Voo Alvo"; b.BackgroundColor3 = Color3.fromRGB(100,50,200)
+        toast("Voo-alvo OFF", CFG.TEXT_DIM)
+    else
+        if Features.voo.start() then
+            State.voo = true
+            b.Text = "⏹ Parar Voo"; b.BackgroundColor3 = Color3.fromRGB(180,60,20)
+            toast("Voo-alvo ON", CFG.ACCENT)
+        end
+    end
+end
+
+-- =====================================================================
+-- TAB EXTRAS (botões menores)
+-- =====================================================================
+local function toggleFeature(parent, textOn, textOff, colorOn, colorOff, stateKey, onFn, offFn)
+    local cur = State[stateKey]
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1,0,0,BTN_H)
+    b.BackgroundColor3 = cur and colorOn or colorOff
+    b.Text = cur and textOn or textOff
+    b.TextColor3 = CFG.TEXT_MAIN; b.TextScaled = true
+    b.Font = Enum.Font.GothamBold; b.ZIndex = 2; b.Parent = parent
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0,8)
+    local s = Instance.new("UIStroke", b); s.Color = Color3.new(1,1,1); s.Transparency = 0.85; s.Thickness = 1
+    b.MouseButton1Click:Connect(function()
+        playClick()
+        State[stateKey] = not State[stateKey]
+        local on = State[stateKey]
+        b.Text = on and textOn or textOff
+        b.BackgroundColor3 = on and colorOn or colorOff
+        Utils.safeCall(function()
+            if on and onFn then onFn() end
+            if not on and offFn then offFn() end
+        end)
+    end)
+    return b
+end
+
+makeLabel(TabExtras, "🎨 VISUAL", CFG.ACCENT, true)
+toggleFeature(TabExtras, "☀ Fullbright", "☀ Fullbright OFF", Color3.fromRGB(220,200,30), Color3.fromRGB(60,55,10), "fullbright",
+    function() Features.fullbright.on() end, function() Features.fullbright.off() end)
+toggleFeature(TabExtras, "👻 Invisível", "👻 Invisível OFF", Color3.fromRGB(80,80,180), Color3.fromRGB(30,30,60), "invisible",
+    function() Features.invisible.apply() end, function() Features.invisible.restore() end)
+toggleFeature(TabExtras, "✨ Highlight", "✨ Highlight OFF", Color3.fromRGB(150,80,220), Color3.fromRGB(50,30,80), "highlight",
+    function() if State.target then Features.highlight.apply(State.target) end end, function() Features.highlight.remove() end)
+toggleFeature(TabExtras, "👁 ESP", "👁 ESP OFF", Color3.fromRGB(80,180,80), Color3.fromRGB(30,60,30), "esp",
+    function() Features.esp.start() end, function() Features.esp.stop() end)
+
+makeLabel(TabExtras, "🏃 MOV", CFG.ACCENT, true)
+toggleFeature(TabExtras, "⚡ Speed", "⚡ Speed OFF", Color3.fromRGB(220,130,30), Color3.fromRGB(70,45,10), "speedHack",
+    function() Features.speed.apply() end, function() Features.speed.apply() end)
+toggleFeature(TabExtras, "🌀 Noclip", "🌀 Noclip OFF", Color3.fromRGB(100,100,100), Color3.fromRGB(40,40,40), "noclip",
+    function() end, function() Features.noclip.restore() end)
+toggleFeature(TabExtras, "🚀 Anti-Queda", "🚀 Anti-Queda OFF", Color3.fromRGB(30,110,110), Color3.fromRGB(15,45,45), "antiFall")
+toggleFeature(TabExtras, "🛡 Anti-AFK", "🛡 Anti-AFK OFF", Color3.fromRGB(40,110,150), Color3.fromRGB(15,45,60), "antiAfk")
+
+makeLabel(TabExtras, "🖱 AUTO", CFG.ACCENT, true)
+toggleFeature(TabExtras, "🖱 Auto-Click", "🖱 Auto-Click OFF", Color3.fromRGB(160,60,160), Color3.fromRGB(60,25,60), "autoClick",
+    function() Features.autoClick.start() end, function() Features.autoClick.stop() end)
+toggleFeature(TabExtras, "🔊 Som", "🔊 Som OFF", Color3.fromRGB(80,150,80), Color3.fromRGB(30,55,30), "som")
+
+-- =====================================================================
+-- TAB EMOTES (grid compacto)
+-- =====================================================================
+local CatBar = Instance.new("Frame")
+CatBar.Size = UDim2.new(1, 0, 0, 26)
+CatBar.BackgroundColor3 = CFG.BG_MID
+CatBar.BackgroundTransparency = 0.3
+CatBar.BorderSizePixel = 0
+CatBar.ZIndex = 3
+CatBar.Parent = TabEmotes
+Instance.new("UICorner", CatBar).CornerRadius = UDim.new(0,6)
+
+local CATS = {
+    {id="todas",     nome="Todas",  cor=CFG.ACCENT},
+    {id="padrao",    nome="Pad",    cor=Color3.fromRGB(100,150,255)},
+    {id="dance",     nome="Dan",    cor=Color3.fromRGB(255,100,150)},
+    {id="expressao", nome="Exp",    cor=Color3.fromRGB(255,180,80)},
+    {id="movimento", nome="Mov",    cor=Color3.fromRGB(100,220,140)},
+    {id="favoritos", nome="⭐",     cor=Color3.fromRGB(255,220,60)},
+}
+local catBtns = {}
+local cw = (GUI_W - 12) / #CATS
+for i, c in ipairs(CATS) do
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, cw, 1, 0)
+    b.Position = UDim2.new(0, (i-1)*cw, 0, 0)
+    b.BackgroundColor3 = i==1 and c.cor or CFG.BG_MID
+    b.BackgroundTransparency = i==1 and 0.2 or 0.6
+    b.Text = c.nome; b.TextColor3 = Color3.new(1,1,1); b.TextScaled = true
+    b.Font = Enum.Font.GothamBold; b.ZIndex = 4; b.Parent = CatBar
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0,4)
+    catBtns[c.id] = b
+end
+
+local RigLabel = Instance.new("TextLabel")
+RigLabel.Size = UDim2.new(1, 0, 0, 12)
+RigLabel.BackgroundTransparency = 1
+RigLabel.Text = "Rig: " .. Utils.getRigType(LP.Character)
+RigLabel.TextColor3 = Color3.fromRGB(255,220,100)
+RigLabel.TextScaled = true
+RigLabel.Font = Enum.Font.GothamBold
+RigLabel.Parent = TabEmotes
+
+local GridFrame = Instance.new("Frame")
+GridFrame.Size = UDim2.new(1, 0, 0, 200)
+GridFrame.BackgroundTransparency = 1
+GridFrame.Parent = TabEmotes
+
+local GridLayout = Instance.new("UIGridLayout", GridFrame)
+GridLayout.CellSize = UDim2.new(0, 60, 0, 60)
+GridLayout.CellPadding = UDim2.new(0, 4, 0, 4)
+GridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local BtnStopEmote = bigButton(TabEmotes, "⏹ Parar", Color3.fromRGB(180,60,60), function()
+    local hum = Utils.getHumanoid(LP)
+    if hum then
+        pcall(function() hum:StopPlayingAnimationTracks() end)
+        pcall(function() hum:PlayEmote("") end)
+    end
+    toast("Parado", CFG.DANGER)
+end)
+
+local function tocarEmote(nome)
+    local char = LP.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return end
+    local rig = Utils.getRigType(char)
+    local info
+    for _, e in ipairs(EMOTES) do if e.nome == nome then info = e; break end end
+
+    if rig == "R15" then
+        pcall(function() hum:PlayEmote(nome) end)
+        toast(nome, CFG.SUCCESS)
+    elseif rig == "R6" then
+        if info and info.r6 then
+            pcall(function()
+                local ChatSvc = game:GetService("Chat")
+                if ChatSvc and ChatSvc.Chat then ChatSvc:Chat(hum, "/e "..nome)
+                else StarterGui:SetCore("ChatMakeSystemMessage", {Text = "/e "..nome, Color = Color3.new()}) end
+            end)
+            toast(nome.." (R6)", CFG.SUCCESS)
+        else
+            toast(nome.." só R15", CFG.WARN)
+        end
+    end
+end
+
+local function renderEmotes()
+    for _, c in ipairs(GridFrame:GetChildren()) do
+        if c:IsA("TextButton") then c:Destroy() end
+    end
+    local lista = {}
+    for _, info in ipairs(EMOTES) do
+        local ok = false
+        if State.emoteCat == "todas" then ok = true
+        elseif State.emoteCat == "favoritos" then ok = Favorites[info.nome]
+        else ok = (info.cat == State.emoteCat) end
+        if ok then table.insert(lista, info) end
+    end
+    for _, info in ipairs(lista) do
+        local b = Instance.new("TextButton")
+        b.Name = info.nome
+        b.BackgroundColor3 = CFG.BG_LIGHT
+        b.BackgroundTransparency = 0.15
+        b.Text = ""
+        b.ZIndex = 3
+        b.Parent = GridFrame
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0,8)
+        local s = Instance.new("UIStroke", b)
+        s.Color = CFG.ACCENT; s.Thickness = 1; s.Transparency = 0.7
+
+        local emoji = Instance.new("TextLabel")
+        emoji.Size = UDim2.new(1,0,0.7,0); emoji.Position = UDim2.new(0,0,0,2)
+        emoji.BackgroundTransparency = 1; emoji.Text = info.emoji
+        emoji.TextScaled = true; emoji.Font = Enum.Font.GothamBold
+        emoji.ZIndex = 4; emoji.Parent = b
+
+        local nome = Instance.new("TextLabel")
+        nome.Size = UDim2.new(1,-4,0.28,0); nome.Position = UDim2.new(0,2,0.7,0)
+        nome.BackgroundTransparency = 1; nome.Text = info.nome
+        nome.TextColor3 = CFG.TEXT_MAIN; nome.TextScaled = true
+        nome.Font = Enum.Font.GothamBold; nome.ZIndex = 4; nome.Parent = b
+
+        local fav = Instance.new("TextButton")
+        fav.Size = UDim2.new(0, 16, 0, 16)
+        fav.Position = UDim2.new(1, -18, 0, 2)
+        fav.BackgroundTransparency = 1
+        fav.Text = Favorites[info.nome] and "⭐" or "☆"
+        fav.TextColor3 = Favorites[info.nome] and Color3.fromRGB(255,220,60) or CFG.TEXT_DIM
+        fav.TextScaled = true; fav.Font = Enum.Font.GothamBold; fav.ZIndex = 5; fav.Parent = b
+
+        fav.MouseButton1Click:Connect(function()
+            playClick()
+            Favorites[info.nome] = not Favorites[info.nome]
+            fav.Text = Favorites[info.nome] and "⭐" or "☆"
+            fav.TextColor3 = Favorites[info.nome] and Color3.fromRGB(255,220,60) or CFG.TEXT_DIM
+            saveFav(info.nome, Favorites[info.nome])
+        end)
+
+        b.MouseButton1Click:Connect(function()
+            playClick()
+            if Utils.getRigType(LP.Character) == "R6" and not info.r6 then
+                local old = b.BackgroundColor3
+                b.BackgroundColor3 = Color3.fromRGB(120,30,30)
+                TweenService:Create(b, TweenInfo.new(0.3), {BackgroundColor3 = old}):Play()
+                toast(info.nome.." só R15", CFG.WARN)
+                return
+            end
+            local old = b.BackgroundColor3
+            b.BackgroundColor3 = Color3.fromRGB(30,120,60)
+            TweenService:Create(b, TweenInfo.new(0.3), {BackgroundColor3 = old}):Play()
+            tocarEmote(info.nome)
+        end)
+    end
+    local count = #lista
+    local cols = 3
+    local rows = math.ceil(math.max(count,1) / cols)
+    local cellH = GridLayout.CellSize.Y.Offset + GridLayout.CellPadding.Y.Offset
+    GridFrame.Size = UDim2.new(1, 0, 0, rows * cellH + 6)
+end
+
+_G.__renderEmotes = renderEmotes
+
+for _, c in ipairs(CATS) do
+    catBtns[c.id].MouseButton1Click:Connect(function()
+        playClick()
+        State.emoteCat = c.id
+        for _, cc in ipairs(CATS) do
+            catBtns[cc.id].BackgroundColor3 = cc.id==c.id and cc.cor or CFG.BG_MID
+            catBtns[cc.id].BackgroundTransparency = cc.id==c.id and 0.2 or 0.6
+        end
+        renderEmotes()
+    end)
+end
+
+LP.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    RigLabel.Text = "Rig: " .. Utils.getRigType(LP.Character)
+end)
+
+-- =====================================================================
+-- TAB AJUSTES
+-- =====================================================================
+makeLabel(TabAjustes, "⚙ AJUSTES", CFG.ACCENT, true)
+makeSlider(TabAjustes, "💨 Fly", 10, 300, State.flySpeed, function(v) State.flySpeed = v end)
+makeSlider(TabAjustes, "🎯 Follow", 1, 100, math.floor(State.followSmooth*100), function(v) State.followSmooth = v/100 end)
+makeSlider(TabAjustes, "⚡ Andar", 16, 300, State.walkSpeed, function(v) State.walkSpeed = v; Features.speed.apply() end)
+makeSlider(TabAjustes, "🦘 Pulo", 50, 500, State.jumpPower, function(v) State.jumpPower = v; Features.speed.apply() end)
+makeSlider(TabAjustes, "🖱 CPS", 1, 30, State.cps, function(v) State.cps = v end)
+makeSlider(TabAjustes, "📏 TP", 1, 20, State.tpDist, function(v) State.tpDist = v end)
+
+makeLabel(TabAjustes, "💾 CONFIG", CFG.ACCENT, true)
+bigButton(TabAjustes, "💾 Salvar", Color3.fromRGB(60,140,60), function()
+    saveState(); toast("✓ Salvo", CFG.SUCCESS)
+end)
+bigButton(TabAjustes, "🔄 Reset", Color3.fromRGB(180,60,60), function()
+    SaveFolder:ClearAllChildren(); toast("⚠ Reset", CFG.WARN)
+end)
+
+-- =====================================================================
+-- TAB INFO
+-- =====================================================================
+makeLabel(TabInfo, "📊 STATUS", CFG.ACCENT, true)
+local InfoStatus = makeLabel(TabInfo, "Inativo", CFG.TEXT_DIM); InfoStatus.Size = UDim2.new(1,-12,0,18)
+local InfoPlayers = makeLabel(TabInfo, "", CFG.TEXT_DIM); InfoPlayers.Size = UDim2.new(1,-12,0,16); InfoPlayers.Font = Enum.Font.Gotham
+local InfoFPS = makeLabel(TabInfo, "", CFG.TEXT_DIM); InfoFPS.Size = UDim2.new(1,-12,0,16); InfoFPS.Font = Enum.Font.Gotham
+local InfoPing = makeLabel(TabInfo, "", CFG.TEXT_DIM); InfoPing.Size = UDim2.new(1,-12,0,16); InfoPing.Font = Enum.Font.Gotham
+local InfoDevice = makeLabel(TabInfo, "", CFG.TEXT_DIM); InfoDevice.Size = UDim2.new(1,-12,0,16); InfoDevice.Font = Enum.Font.Gotham
+local InfoRig = makeLabel(TabInfo, "", CFG.TEXT_DIM); InfoRig.Size = UDim2.new(1,-12,0,16); InfoRig.Font = Enum.Font.Gotham
+
+local InfoCredit = makeLabel(TabInfo, "✦ Aven v"..CFG.VERSION.." ✦", CFG.ACCENT)
+InfoCredit.Size = UDim2.new(1,-12,0,20)
+
+local function refreshInfo()
+    InfoPlayers.Text = "👥 "..(#Players:GetPlayers()-1).." / "..#Players:GetPlayers()
+    InfoDevice.Text = "📱 "..DEV_KIND
+    InfoRig.Text = "🦴 "..Utils.getRigType(LP.Character)
+end
+refreshInfo()
+Players.PlayerAdded:Connect(refreshInfo)
+Players.PlayerRemoving:Connect(refreshInfo)
+
+task.spawn(function()
+    local frames, last = 0, tick()
+    RunService.RenderStepped:Connect(function()
+        frames = frames + 1
+        if tick() - last >= 1 then InfoFPS.Text = "📊 "..frames; frames = 0; last = tick() end
+    end)
+end)
+task.spawn(function()
+    while task.wait(2) do
+        Utils.safeCall(function()
+            local ping = LP:GetNetworkPing() * 1000
+            InfoPing.Text = "📡 "..Utils.round(ping,0).."ms"
+        end)
+    end
+end)
+
+local function setStatus(txt, cor)
+    InfoStatus.Text = txt or "Inativo"
+    InfoStatus.TextColor3 = cor or CFG.TEXT_DIM
+end
+
+-- =====================================================================
+-- TAB MAIS
+-- =====================================================================
+makeLabel(TabMais, "🚀 ATALHOS", Color3.fromRGB(120,220,140), true)
+
+bigButton(TabMais, "🚀 Aven Jump", Color3.fromRGB(200,80,220), function()
+    if _G.__abrirAvenJump then _G.__abrirAvenJump() end
+end)
+
+bigButton(TabMais, "🔄 Reset Toggles", Color3.fromRGB(120,80,180), function()
+    State.fullbright = false; State.invisible = false; State.highlight = false
+    State.esp = false; State.speedHack = false; State.autoClick = false
+    Features.fullbright.off(); Features.invisible.restore(); Features.highlight.remove()
+    Features.esp.stop(); Features.autoClick.stop(); Features.speed.apply()
+    toast("Reset", CFG.WARN)
+end)
+
+bigButton(TabMais, "🎭 Emotes", Color3.fromRGB(255,100,180), function()
+    switchTab("emotes")
+end)
+
+-- =====================================================================
+-- AVEN JUMP (janela compacta 220×300)
+-- =====================================================================
+local AvenJumpWin = nil
+
+_G.__abrirAvenJump = function()
+    if AvenJumpWin and AvenJumpWin.Parent then
+        AvenJumpWin:Destroy()
+        AvenJumpWin = nil
+        toast("Jump fechado", CFG.TEXT_DIM)
+        return
+    end
+
+    local w = 220
+    local h = 300
+
+    local JumpWin = Instance.new("Frame")
+    JumpWin.Name = "AvenJumpWindow"
+    JumpWin.Size = UDim2.new(0, w, 0, h)
+    JumpWin.Position = UDim2.new(0.5, -w/2 + 140, 0.5, -h/2)
+    JumpWin.BackgroundColor3 = Color3.fromRGB(12, 8, 24)
+    JumpWin.BorderSizePixel = 0
+    JumpWin.ZIndex = 200
+    JumpWin.Parent = ScreenGui
+    Instance.new("UICorner", JumpWin).CornerRadius = UDim.new(0, 10)
+    local js = Instance.new("UIStroke", JumpWin)
+    js.Color = Color3.fromRGB(180, 80, 255)
+    js.Thickness = 1.5
+    AvenJumpWin = JumpWin
+
+    local JTop = Instance.new("Frame")
+    JTop.Size = UDim2.new(1, 0, 0, 28)
+    JTop.BackgroundColor3 = Color3.fromRGB(40, 16, 70)
+    JTop.BorderSizePixel = 0
+    JTop.ZIndex = 201
+    JTop.Parent = JumpWin
+    Instance.new("UICorner", JTop).CornerRadius = UDim.new(0, 10)
+    local jf = Instance.new("Frame")
+    jf.Size = UDim2.new(1, 0, 0.5, 0); jf.Position = UDim2.new(0,0,0.5,0)
+    jf.BackgroundColor3 = Color3.fromRGB(40, 16, 70); jf.BorderSizePixel = 0
+    jf.ZIndex = 201; jf.Parent = JTop
+
+    local JTitle = Instance.new("TextLabel")
+    JTitle.Size = UDim2.new(1, -60, 1, 0)
+    JTitle.Position = UDim2.new(0, 10, 0, 0)
+    JTitle.BackgroundTransparency = 1
+    JTitle.Text = "🚀 Aven Jump"
+    JTitle.TextColor3 = Color3.fromRGB(220, 140, 255)
+    JTitle.TextScaled = true; JTitle.Font = Enum.Font.GothamBold
+    JTitle.TextXAlignment = Enum.TextXAlignment.Left
+    JTitle.ZIndex = 202; JTitle.Parent = JTop
+
+    local JClose = Instance.new("TextButton")
+    JClose.Size = UDim2.new(0, 20, 0, 20)
+    JClose.Position = UDim2.new(1, -24, 0.5, -10)
+    JClose.BackgroundColor3 = CFG.DANGER
+    JClose.Text = "✕"; JClose.TextColor3 = Color3.new(1,1,1)
+    JClose.TextScaled = true; JClose.Font = Enum.Font.GothamBold
+    JClose.ZIndex = 203; JClose.Parent = JTop
+    Instance.new("UICorner", JClose).CornerRadius = UDim.new(0, 5)
+
+    JClose.MouseButton1Click:Connect(function()
+        playClick()
+        JumpWin:Destroy()
+        AvenJumpWin = nil
+    end)
+
+    local jDragging, jStart, jStartPos
+    JTop.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            jDragging = true; jStart = i.Position; jStartPos = JumpWin.Position
+        end
+    end)
+    JTop.InputChanged:Connect(function(i)
+        if jDragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local d = i.Position - jStart
+            JumpWin.Position = UDim2.new(jStartPos.X.Scale, jStartPos.X.Offset + d.X, jStartPos.Y.Scale, jStartPos.Y.Offset + d.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            jDragging = false
+        end
+    end)
+
+    local JScroll = Instance.new("ScrollingFrame")
+    JScroll.Size = UDim2.new(1, -6, 1, -34)
+    JScroll.Position = UDim2.new(0, 3, 0, 30)
+    JScroll.BackgroundTransparency = 1
+    JScroll.BorderSizePixel = 0
+    JScroll.ScrollBarThickness = 4
+    JScroll.ScrollBarImageColor3 = Color3.fromRGB(180, 80, 255)
+    JScroll.CanvasSize = UDim2.new(0,0,0,0)
+    JScroll.ZIndex = 202
+    JScroll.Parent = JumpWin
+
+    local JL = Instance.new("UIListLayout", JScroll)
+    JL.Padding = UDim.new(0, 4); JL.SortOrder = Enum.SortOrder.LayoutOrder
+    local JP = Instance.new("UIPadding", JScroll)
+    JP.PaddingTop = UDim.new(0, 4); JP.PaddingBottom = UDim.new(0, 4)
+    JP.PaddingLeft = UDim.new(0, 4); JP.PaddingRight = UDim.new(0, 4)
+
+    local function jBtn(text, color, cb)
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(1, 0, 0, 28)
+        b.BackgroundColor3 = color
+        b.Text = text; b.TextColor3 = Color3.new(1,1,1); b.TextScaled = true
+        b.Font = Enum.Font.GothamBold; b.ZIndex = 202; b.Parent = JScroll
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        b.MouseButton1Click:Connect(function() playClick(); Utils.safeCall(cb, b) end)
+        return b
+    end
+
+    local JLabel = Instance.new("TextLabel")
+    JLabel.Size = UDim2.new(1, 0, 0, 14)
+    JLabel.BackgroundTransparency = 1
+    JLabel.Text = "🎮 Modo"
+    JLabel.TextColor3 = Color3.fromRGB(200, 150, 255)
+    JLabel.TextScaled = true; JLabel.Font = Enum.Font.GothamBold
+    JLabel.ZIndex = 202; JLabel.Parent = JScroll
+
+    local JModos = Instance.new("Frame")
+    JModos.Size = UDim2.new(1, 0, 0, 32)
+    JModos.BackgroundTransparency = 1
+    JModos.ZIndex = 202; JModos.Parent = JScroll
+
+    local JModNomes = {"🔵","🟢","🟡","🟣","🔴"}
+    local jMb = {}
+    local jw = (w - 20) / 5
+    for i, txt in ipairs(JModNomes) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0, jw - 2, 0, 28)
+        b.Position = UDim2.new(0, (i-1)*(jw+1), 0, 0)
+        b.BackgroundColor3 = i == State.followMode and CFG.ACCENT or CFG.BG_LIGHT
+        b.Text = txt
+        b.TextColor3 = Color3.new(1,1,1); b.TextScaled = true
+        b.Font = Enum.Font.GothamBold; b.ZIndex = 202; b.Parent = JModos
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+        jMb[i] = b
+        b.MouseButton1Click:Connect(function()
+            playClick(); State.followMode = i
+            for j, btn in ipairs(jMb) do btn.BackgroundColor3 = j==i and CFG.ACCENT or CFG.BG_LIGHT end
+        end)
+    end
+
+    jBtn("🔵  Follow", Color3.fromRGB(28, 95, 175), function(b)
+        if active.follow then
+            Features.follow.stop(); State.follow = false
+            b.Text = "🔵  Follow"; b.BackgroundColor3 = Color3.fromRGB(28, 95, 175)
+        else
+            if Features.follow.start() then
+                State.follow = true
+                b.Text = "⏹  Parar"; b.BackgroundColor3 = Color3.fromRGB(175, 55, 18)
+            end
+        end
+    end)
+
+    jBtn("▶  Voo Alvo", Color3.fromRGB(95, 45, 195), function(b)
+        if active.voo then
+            Features.voo.stop(); State.voo = false
+            b.Text = "▶  Voo Alvo"; b.BackgroundColor3 = Color3.fromRGB(95, 45, 195)
+        else
+            if Features.voo.start() then
+                State.voo = true
+                b.Text = "⏹  Parar"; b.BackgroundColor3 = Color3.fromRGB(165, 38, 38)
+            end
+        end
+    end)
+
+    jBtn("🕊  Voar", Color3.fromRGB(35, 120, 80), function(b)
+        if active.fly then
+            Features.fly.stop(); State.fly = false
+            b.Text = "🕊  Voar"; b.BackgroundColor3 = Color3.fromRGB(35, 120, 80)
+        else
+            if Features.fly.start() then
+                State.fly = true
+                b.Text = "⏹  Parar"; b.BackgroundColor3 = Color3.fromRGB(165, 38, 38)
+            end
+        end
+    end)
+
+    jBtn("⚡  Teleport", Color3.fromRGB(160, 80, 220), function()
+        Features.teleport.toTarget()
+    end)
+
+    jBtn("🛑  Parar Tudo", Color3.fromRGB(200, 50, 50), function()
+        Features.follow.stop(); Features.fly.stop(); Features.voo.stop()
+        State.follow = false; State.fly = false; State.voo = false
+        toast("Parado", CFG.DANGER)
+    end)
+
+    task.defer(function()
+        JL:ApplyLayout()
+        JScroll.CanvasSize = UDim2.new(0,0,0, JL.AbsoluteContentSize.Y + 12)
+        JL:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            JScroll.CanvasSize = UDim2.new(0,0,0, JL.AbsoluteContentSize.Y + 12)
+        end)
+    end)
+
+    toast("🚀 Aven Jump", Color3.fromRGB(200, 100, 255))
+end
+
+-- =====================================================================
+-- RESPAWN
+-- =====================================================================
+LP.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if active.fly then
+        Features.fly.stop(); State.fly = false
+        BtnFly.Text = "🕊 Voar"; BtnFly.BackgroundColor3 = Color3.fromRGB(35,130,90)
+    end
+    if active.follow then
+        Features.follow.stop(); State.follow = false
+        BtnFollow.Text = "🔵 Follow"; BtnFollow.BackgroundColor3 = Color3.fromRGB(30,100,180)
+    end
+    refreshInfo()
+    setStatus("Respawn ✓", CFG.SUCCESS)
+    task.delay(2, function() setStatus("Inativo") end)
+end)
+
+-- =====================================================================
+-- KEYBINDS
+-- =====================================================================
+if isPC then
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == Enum.KeyCode.F then BtnFly.MouseButton1Click:Fire()
+        elseif input.KeyCode == Enum.KeyCode.G then BtnFollow.MouseButton1Click:Fire()
+        elseif input.KeyCode == Enum.KeyCode.H then BtnVoo.MouseButton1Click:Fire()
+        elseif input.KeyCode == Enum.KeyCode.T then BtnTP.MouseButton1Click:Fire()
+        elseif input.KeyCode == Enum.KeyCode.P then BtnPanic.MouseButton1Click:Fire()
+        elseif input.KeyCode == Enum.KeyCode.E then switchTab("emotes")
+        elseif input.KeyCode == Enum.KeyCode.M then switchTab("mais")
+        end
+    end)
+end
+
+-- =====================================================================
+-- PANIC
+-- =====================================================================
+BtnPanic.MouseButton1Click:Connect(function()
+    playClick()
+    Features.follow.stop(); Features.fly.stop(); Features.voo.stop()
+    Features.fullbright.off(); Features.invisible.restore(); Features.highlight.remove()
+    Features.esp.stop(); Features.autoClick.stop(); Features.noclip.restore()
+
+    State.follow = false; State.fly = false; State.voo = false
+    State.fullbright = false; State.invisible = false; State.highlight = false
+    State.esp = false; State.autoClick = false; State.speedHack = false
+
+    BtnFollow.Text = "🔵 Follow"; BtnFollow.BackgroundColor3 = Color3.fromRGB(30,100,180)
+    BtnFly.Text = "🕊 Voar"; BtnFly.BackgroundColor3 = Color3.fromRGB(35,130,90)
+    BtnVoo.Text = "▶ Voo Alvo"; BtnVoo.BackgroundColor3 = Color3.fromRGB(100,50,200)
+
+    Features.speed.apply()
+    toast("⚠ OFF", CFG.DANGER)
+end)
+
+-- =====================================================================
+-- X FLUTUANTE (compacto 42px)
+-- =====================================================================
+local XFloat = Instance.new("TextButton")
+XFloat.Name = "AvenCloseFloat"
+XFloat.Size = UDim2.new(0, 42, 0, 42)
+XFloat.Position = UDim2.new(1, -56, 0, 14)
+XFloat.BackgroundColor3 = Color3.fromRGB(200, 45, 45)
+XFloat.Text = "✕"
+XFloat.TextColor3 = Color3.new(1, 1, 1)
+XFloat.TextScaled = true
+XFloat.Font = Enum.Font.GothamBold
+XFloat.ZIndex = 500
+XFloat.Parent = ScreenGui
+Instance.new("UICorner", XFloat).CornerRadius = UDim.new(1, 0)
+
+local xFloatStroke = Instance.new("UIStroke", XFloat)
+xFloatStroke.Color = Color3.fromRGB(255, 130, 130)
+xFloatStroke.Thickness = 1.5
+
+local xHalo = Instance.new("Frame")
+xHalo.Size = UDim2.new(1, 6, 1, 6)
+xHalo.Position = UDim2.new(0, -3, 0, -3)
+xHalo.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+xHalo.BackgroundTransparency = 0.7
+xHalo.BorderSizePixel = 0
+xHalo.ZIndex = -1
+xHalo.Parent = XFloat
+Instance.new("UICorner", xHalo).CornerRadius = UDim.new(1, 0)
+
+task.spawn(function()
+    while XFloat.Parent do
+        TweenService:Create(xHalo, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+            BackgroundTransparency = 0.9,
+            Size = UDim2.new(1, 12, 1, 12),
+            Position = UDim2.new(0, -6, 0, -6),
+        }):Play()
+        task.wait(1.2)
+    end
+end)
+
+XFloat.MouseEnter:Connect(function()
+    TweenService:Create(XFloat, TweenInfo.new(0.15), {
+        BackgroundColor3 = Color3.fromRGB(240, 60, 60),
+        Size = UDim2.new(0, 48, 0, 48),
+    }):Play()
+end)
+XFloat.MouseLeave:Connect(function()
+    TweenService:Create(XFloat, TweenInfo.new(0.15), {
+        BackgroundColor3 = Color3.fromRGB(200, 45, 45),
+        Size = UDim2.new(0, 42, 0, 42),
+    }):Play()
+end)
+
+local xDrag, xStart, xStartPos
+XFloat.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        xDrag = true; xStart = i.Position; xStartPos = XFloat.Position
+    end
+end)
+XFloat.InputChanged:Connect(function(i)
+    if xDrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+        local d = i.Position - xStart
+        if math.abs(d.X) > 5 or math.abs(d.Y) > 5 then
+            XFloat.Position = UDim2.new(xStartPos.X.Scale, xStartPos.X.Offset + d.X, xStartPos.Y.Scale, xStartPos.Y.Offset + d.Y)
+        end
+    end
+end)
+UserInputService.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        task.wait(0.05); xDrag = false
+    end
+end)
+
+local function fecharAven()
+    playClick()
+    TweenService:Create(XFloat, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+        Size = UDim2.new(0, 0, 0, 0), Rotation = 180, BackgroundTransparency = 1,
+    }):Play()
+    TweenService:Create(xFloatStroke, TweenInfo.new(0.3), {Transparency = 1}):Play()
+    TweenService:Create(xHalo, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
+    task.wait(0.3)
+
+    for _, c in ipairs(conns) do Utils.safeCall(function() c:Disconnect() end) end
+
+    Features.fly.stop(); Features.voo.stop(); Features.follow.stop()
+    Features.esp.stop(); Features.highlight.remove(); Features.autoClick.stop()
+    Features.invisible.restore(); Features.fullbright.off()
+
+    local hum = Utils.getHumanoid(LP)
+    if hum then hum.PlatformStand = false; hum.WalkSpeed = 16; hum.JumpPower = 50 end
+    Features.noclip.restore()
+
+    if AvenJumpWin and AvenJumpWin.Parent then AvenJumpWin:Destroy(); AvenJumpWin = nil end
+
+    saveState()
+    ScreenGui:Destroy()
+    notifyNative("Aven", "❌ Fechado", 2)
+end
+
+XFloat.MouseButton1Click:Connect(function()
+    if not xDrag then fecharAven() end
+end)
+
+if isPC then
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == Enum.KeyCode.Escape then
+            if ScreenGui and ScreenGui.Parent then
+                local focused = UserInputService:GetFocusedTextBox()
+                if not focused then fecharAven() end
+            end
+        end
+    end)
+end
+
+BtnClose.MouseButton1Click:Connect(function() fecharAven() end)
+
+-- =====================================================================
+-- BOOT
+-- =====================================================================
+task.delay(0.3, function()
+    toast("✦ Aven v"..CFG.VERSION.." ✦", CFG.ACCENT)
+    notifyNative("Aven Ultimate", "Carregado ("..DEV_KIND..")", 2)
+end)
+
+renderEmotes()
+setStatus("Inativo", CFG.TEXT_DIM)
+print("[Aven Ultimate v"..CFG.VERSION.."] ✓ "..DEV_KIND.." | "..Utils.getRigType(LP.Character))
